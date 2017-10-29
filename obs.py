@@ -32,6 +32,14 @@ def request(*args, **kwargs):
 		ws = None
 	return res
 	
+class Scene:
+	def __init__(self, scene):
+		res = request(GetCurrentScene())
+		self.sources = [Source(scene, x['name']) for x in res.getSources()]
+		
+	def __getitem__(self, idx):
+		return self.sources[idx]
+	
 class Source:
 	def __init__(self, scene, source):
 		self.scene = scene
@@ -44,6 +52,7 @@ class Source:
 		self.cx = 0
 		self.cy = 0
 		self.visible = True
+		self.volume = 1.
 	
 	def init(self):
 		self.x = 0.
@@ -54,6 +63,7 @@ class Source:
 		self.cx = 0
 		self.cy = 0
 		self.visible = True
+		self.volume = 1.
 		request(SetSceneItemPosition(
 			item=self.source, 
 			x=self.x, 
@@ -65,10 +75,15 @@ class Source:
 			y_scale=self.y_scale, 
 			scene_name=self.scene, 
 			rotation=self.rotation))
+		request(SetSourceRender(
+			source=self.source,
+			scene_name=self.scene,
+			render=self.visible))
 		res = request(GetCurrentScene())
 		print(res.getSources())	
 		src = list(filter(lambda x: x['name'] == self.source, res.getSources()))[0]
 		self.cx, self.cy = src['source_cx'], src['source_cy']
+		request(SetVolume(source=self.source, volume=self.volume))
 	
 	def moveXY(self, x, y):
 		print('move', x, y)
@@ -145,54 +160,74 @@ class Source:
 	def toggleStreaming(self):
 		request(StartStopStreaming())
 		
+	def setVolume(self, volume):
+		self.volume += volume
+		self.volume = max(self.volume, 0.)
+		self.volume = min(self.volume, 1.)
+		request(SetVolume(source=self.source, volume=self.volume))
+		
 MODE = Enum('MODE',
 	' '.join([
-		'MOVE_X', # z
-		'MOVE_Y', # x
-		'SCALE', # c
-		'ROTATE', # b
+		'MOVE_X', # f1
+		'MOVE_Y', # f2
+		'SCALE', # f3
+		'ROTATE', # f4
+		'VOLUME', # f6
 	])
 )
-vvvvvvssss
+
+
 mode = MODE.MOVE_X
-keys = 'zxcb'
+source_idx = 0
+keys = ['f1', 'f2', 'f3', 'f4', 'f6']
 def handleEvent(event):
-	global src
+	global src, scene, source_idx
 	global mode
 	if event['type'] == 'craft':
 		event = event['msg']
 		if event['message_type'] == 'crown_turn_event':
 			if mode == MODE.MOVE_X:
-				src.moveXY(event['delta'], 0)
+				scene[source_idx].moveXY(event['delta'], 0)
 			elif mode == MODE.MOVE_Y:
-				src.moveXY(0, event['delta'])
+				scene[source_idx].moveXY(0, event['delta'])
 			elif mode == MODE.SCALE:
-				src.scale(event['delta'] / 100)
+				scene[source_idx].scale(event['delta'] / 100)
 			elif mode == MODE.ROTATE:
-				src.rotate(event['delta'] / 10)
-			elif mode == MODE.VISIBLE:
-				src.toggleVisible()
-			elif mode == MODE.STREAM:
-				src.toggleStreaming()
+				scene[source_idx].rotate(event['delta'] / 10)
+			elif mode == MODE.VOLUME:
+				scene[source_idx].setVolume(event['delta'] / 500)
 				
 	elif event['type'] == 'kbd':
 		event = event['msg']
-		
+		print(event.name)
 		if event.event_type == 'down':
 			if event.name == 'r':
-				src.init()
+				scene[0].init()
+				scene[1].init()
 			elif event.name == 's':
-				src.toggleStreaming()
+				scene[source_idx].toggleStreaming()
 			elif event.name == 'v':
-				src.toggleVisible()
+				scene[source_idx].toggleVisible()
+			elif event.name == 'f10':
+				scene[0].init()
+				scene[1].init()
+				scene[0].moveXY(1000., 500.)
+			elif event.name == 'f12':
+				scene[0].init()
+				scene[1].init()
+				scene[0].moveXY(500., 500.)
+			elif '1' <= event.name <= '9':
+				source_idx = (int(event.name) - 1)
 			elif event.name in keys:
 				mode = list(MODE.__members__.values())[keys.index(event.name)]
-	
+				
+
 def main():
-	global src
-	src = Source(SCENE_NAME, SOURCE_NAME)
-	src.init()
-	craft = Craft('notepad++.exe', 1972, 'c17b2e0d-0d62-4bc1-a824-87fe81eec617')
+	global src, scene, source_idx
+	scene = Scene(SCENE_NAME)
+	for x in scene.sources:
+		x.init()
+	craft = Craft('notepad++.exe', 10344, 'c17b2e0d-0d62-4bc1-a824-87fe81eec617')
 	craft.setEventHandler(handleEvent)
 	craft.connect()
 	
